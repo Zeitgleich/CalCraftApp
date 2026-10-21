@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<d:error xmlns:d="DAV:" xmlns:s="http://sabredav.org/ns">
+  <s:sabredav-version>4.6.0</s:sabredav-version>
+  <s:exception>Sabre\DAV\Exception\InvalidSyncToken</s:exception>
+  <s:message>Invalid or unknown sync token</s:message>
+  <d:valid-sync-token/>
+</d:error>
