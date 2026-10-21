@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<multistatus xmlns="DAV:" xmlns:CR="urn:ietf:params:xml:ns:carddav"><response><href>/alice/contacts/b2c9.vcf</href><propstat><prop><getetag>"8c1f"</getetag><CR:address-data>BEGIN:VCARD
+VERSION:3.0
+UID:b2c9
+FN:Carol Contact
+END:VCARD
+</CR:address-data></prop><status>HTTP/1.1 200 OK</status></propstat></response></multistatus>

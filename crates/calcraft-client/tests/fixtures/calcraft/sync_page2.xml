@@ -1,0 +1,2 @@
+<?xml version="1.0" encoding="utf-8"?>
+<d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav" xmlns:card="urn:ietf:params:xml:ns:carddav" xmlns:cs="http://calendarserver.org/ns/" xmlns:ic="http://apple.com/ns/ical/"><d:response><d:href>/dav/calendars/alice/default/e2.ics</d:href><d:propstat><d:prop><d:getetag>&quot;e2-v1&quot;</d:getetag></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response><d:sync-token>urn:calcraft:sync:3f2a:3</d:sync-token></d:multistatus>

@@ -1,0 +1,2 @@
+<?xml version='1.0' encoding='utf-8'?>
+<multistatus xmlns="DAV:"><response><href>/alice/contacts/b2c9.vcf</href><propstat><prop><getetag>"8c1f"</getetag></prop><status>HTTP/1.1 200 OK</status></propstat></response><sync-token>http://radicale.org/ns/sync/ffef</sync-token></multistatus>

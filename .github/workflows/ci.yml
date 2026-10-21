@@ -38,17 +38,17 @@ jobs:
           persist-credentials: false
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - name: Clippy (all features)
-        run: cargo clippy --workspace --all-targets --all-features
+        run: cargo clippy --locked --workspace --all-targets --all-features
       - name: Clippy (no default transport)
-        run: cargo clippy -p calcraft-client --all-targets --no-default-features
+        run: cargo clippy --locked -p calcraft-client --all-targets --no-default-features
       - name: Test (all features)
-        run: cargo test --workspace --all-features
+        run: cargo test --locked --workspace --all-features
       - name: Test (no default transport)
-        run: cargo test -p calcraft-client --no-default-features
+        run: cargo test --locked -p calcraft-client --no-default-features
       - name: Docs
         env:
           RUSTDOCFLAGS: -D warnings
-        run: cargo doc --workspace --no-deps
+        run: cargo doc --locked --workspace --no-deps
 
   deny:
     runs-on: ubuntu-latest

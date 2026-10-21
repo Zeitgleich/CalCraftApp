@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav" xmlns:card="urn:ietf:params:xml:ns:carddav" xmlns:cs="http://calendarserver.org/ns/" xmlns:ic="http://apple.com/ns/ical/"><d:response><d:href>/dav/calendars/alice/default/mine.ics</d:href><d:propstat><d:prop><d:getetag>&quot;m-1&quot;</d:getetag><c:calendar-data>BEGIN:VCALENDAR&#13;
+VERSION:2.0&#13;
+PRODID:-//Test//EN&#13;
+BEGIN:VEVENT&#13;
+UID:mine&#13;
+DTSTAMP:20261001T000000Z&#13;
+DTSTART:20261021T100000Z&#13;
+DTEND:20261021T110000Z&#13;
+SUMMARY:Mine &amp; yours&#13;
+END:VEVENT&#13;
+END:VCALENDAR&#13;
+</c:calendar-data></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response><d:response><d:href>/dav/calendars/alice/default/missing.ics</d:href><d:status>HTTP/1.1 404 Not Found</d:status></d:response><d:response><d:href>/dav/calendars/bob/default/secret.ics</d:href><d:propstat><d:prop><d:getetag>&quot;s-1&quot;</d:getetag><c:calendar-data>BEGIN:VCALENDAR
+SUMMARY:Bob secret
+END:VCALENDAR
+</c:calendar-data></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response></d:multistatus>

@@ -1,0 +1,45 @@
+[package]
+name = "calcraft-client"
+description = "Security-first CalDAV/CardDAV client library for CalCraft and other standards-based servers"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[features]
+default = ["hyper-transport"]
+## Default HTTP transport: hyper 1 (HTTP/1.1) + rustls (ring) + Mozilla roots.
+hyper-transport = [
+    "dep:bytes",
+    "dep:http",
+    "dep:http-body-util",
+    "dep:hyper",
+    "dep:hyper-util",
+    "dep:hyper-rustls",
+    "dep:rustls",
+    "dep:tokio",
+    "dep:webpki-roots",
+]
+
+[dependencies]
+quick-xml.workspace = true
+zeroize.workspace = true
+
+bytes = { workspace = true, optional = true }
+http = { workspace = true, optional = true }
+http-body-util = { workspace = true, optional = true }
+hyper = { workspace = true, optional = true }
+hyper-util = { workspace = true, optional = true }
+hyper-rustls = { workspace = true, optional = true }
+rustls = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
+webpki-roots = { workspace = true, optional = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
+
+[lints]
+workspace = true
