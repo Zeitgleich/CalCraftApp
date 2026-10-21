@@ -29,6 +29,10 @@ pub struct ClientOptions {
     /// Maximum number of `sync-collection` continuation requests (507
     /// truncation) in one sync run.
     pub max_sync_pages: usize,
+    /// Maximum number of distinct changed/deleted members accumulated over
+    /// all pages of one `sync-collection` run (bounds memory against a
+    /// hostile server that keeps truncating).
+    pub max_sync_entries: usize,
 }
 
 impl Default for ClientOptions {
@@ -42,6 +46,7 @@ impl Default for ClientOptions {
             max_object_bytes: 4 * 1024 * 1024,
             multiget_batch_size: 100,
             max_sync_pages: 1000,
+            max_sync_entries: 200_000,
         }
     }
 }
@@ -260,15 +265,25 @@ fn header_safe(value: &str) -> bool {
     value.bytes().all(|b| (0x20..0x7F).contains(&b))
 }
 
-/// Formats an entity tag for `If-Match`, adding quotes if a server returned
-/// it unquoted.
-pub(crate) fn quoted_etag(etag: &str) -> Result<String, Error> {
+/// Whether a received entity tag is safe to keep (printable ASCII,
+/// strong or weak, quoted or bare).
+pub(crate) fn valid_etag(etag: &str) -> bool {
     let etag = etag.trim();
     let quoted = etag.starts_with('"') || etag.starts_with("W/\"");
-    if etag.is_empty() || !header_safe(etag) || (!quoted && etag.contains('"')) {
+    !etag.is_empty() && header_safe(etag) && (quoted || !etag.contains('"'))
+}
+
+/// Formats a strong entity tag for `If-Match`, adding quotes if a server
+/// returned it unquoted. Weak tags are refused with [`Error::WeakEtag`].
+pub(crate) fn quoted_etag(etag: &str) -> Result<String, Error> {
+    let etag = etag.trim();
+    if !valid_etag(etag) {
         return Err(Error::InvalidInput("malformed entity tag".into()));
     }
-    Ok(if quoted {
+    if etag.starts_with("W/") {
+        return Err(Error::WeakEtag(etag.to_owned()));
+    }
+    Ok(if etag.starts_with('"') {
         etag.to_owned()
     } else {
         format!("\"{etag}\"")
@@ -282,7 +297,8 @@ mod tests {
     #[test]
     fn etag_quoting() {
         assert_eq!(quoted_etag("\"abc\"").unwrap(), "\"abc\"");
-        assert_eq!(quoted_etag("W/\"abc\"").unwrap(), "W/\"abc\"");
+        assert!(matches!(quoted_etag("W/\"abc\""), Err(Error::WeakEtag(_))));
+        assert!(valid_etag("W/\"abc\""));
         assert_eq!(quoted_etag("abc").unwrap(), "\"abc\"");
         assert!(quoted_etag("a\"b").is_err());
         assert!(quoted_etag("\"a\"\r\nX-Evil: 1").is_err());

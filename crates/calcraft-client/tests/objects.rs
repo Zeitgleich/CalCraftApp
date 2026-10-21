@@ -319,3 +319,36 @@ fn get_object_checks_utf8() {
         Err(Error::InvalidObject(_))
     ));
 }
+
+#[test]
+fn weak_etags_are_not_sent_in_if_match() {
+    let uri = format!("{CAL}weak.ics");
+    let mock = MockTransport::new().reply_with(
+        Method::Get,
+        &uri,
+        200,
+        &[("ETag", "W/\"w1\""), ("Content-Type", "text/calendar")],
+        "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n",
+    );
+    let client = client(BASE, mock);
+    let target = href(&uri);
+    // Weak tags are reported to the caller...
+    let object = block_on(client.get_object(&target)).unwrap();
+    assert_eq!(object.etag.as_deref(), Some("W/\"w1\""));
+    // ...but refused for conditional writes, without sending anything.
+    let etag = object.etag.unwrap();
+    assert!(matches!(
+        block_on(client.put_object(
+            &target,
+            CollectionKind::Calendar,
+            "x",
+            &Precondition::Update(etag.clone())
+        )),
+        Err(Error::WeakEtag(_))
+    ));
+    assert!(matches!(
+        block_on(client.delete_object(&target, &etag)),
+        Err(Error::WeakEtag(_))
+    ));
+    assert_eq!(client.transport().requests().len(), 1);
+}

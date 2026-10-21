@@ -153,20 +153,29 @@ impl<T: HttpTransport> DavClient<T> {
         Ok(discovery)
     }
 
-    /// The `DAV:href` children of a property, which must be on the account
-    /// origin.
+    /// The `DAV:href` children of a property on the account origin.
+    /// Foreign or malformed hrefs are dropped; an error is returned only if
+    /// the property had hrefs and none of them is usable.
     pub(crate) fn prop_hrefs(&self, request_url: &Url, prop: &Element) -> Result<Vec<Href>, Error> {
         let mut hrefs = Vec::new();
+        let mut first_rejected = None;
         for href in prop.children_named(NS_DAV, "href") {
-            let url = request_url.join(&href.text)?;
-            if !url.same_origin(self.base_url()) {
-                return Err(Error::CrossOrigin(url.to_string()));
-            }
-            let href = url.href();
-            if !hrefs.contains(&href) {
-                hrefs.push(href);
-            }
+            let error = match request_url.join(&href.text) {
+                Ok(url) if url.same_origin(self.base_url()) => {
+                    let href = url.href();
+                    if !hrefs.contains(&href) {
+                        hrefs.push(href);
+                    }
+                    continue;
+                }
+                Ok(url) => Error::CrossOrigin(url.to_string()),
+                Err(error) => error,
+            };
+            first_rejected.get_or_insert(error);
         }
-        Ok(hrefs)
+        match first_rejected {
+            Some(error) if hrefs.is_empty() => Err(error),
+            _ => Ok(hrefs),
+        }
     }
 }

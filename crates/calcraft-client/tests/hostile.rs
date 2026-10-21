@@ -204,3 +204,19 @@ fn utf8_bom_and_whitespace_are_tolerated() {
     let listed = list(body).unwrap();
     assert_eq!(listed[0].href.as_str(), "/dav/calendars/alice/x/");
 }
+
+#[test]
+fn many_hrefs_sharing_a_propstat_are_rejected() {
+    // ~5,000 hrefs times a 5,000-element propstat would be ~25M copies if
+    // the propstat were duplicated per href; RFC 4918 forbids the form.
+    let hrefs: String = (0..5000)
+        .map(|i| format!("<d:href>/x/{i}/</d:href>"))
+        .collect();
+    let props = "<d:x/>".repeat(5000);
+    let body = format!(
+        r#"<d:multistatus xmlns:d="DAV:"><d:response>{hrefs}<d:propstat><d:prop>{props}</d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response></d:multistatus>"#
+    );
+    let started = std::time::Instant::now();
+    assert!(matches!(list(body), Err(Error::InvalidResponse(_))));
+    assert!(started.elapsed() < std::time::Duration::from_secs(5));
+}

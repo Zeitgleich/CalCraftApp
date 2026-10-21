@@ -5,7 +5,7 @@
 
 use std::collections::HashSet;
 
-use crate::client::{DavClient, quoted_etag, status_error};
+use crate::client::{DavClient, quoted_etag, status_error, valid_etag};
 use crate::collections::CollectionKind;
 use crate::error::Error;
 use crate::transport::{HttpTransport, Method};
@@ -146,7 +146,7 @@ impl<T: HttpTransport> DavClient<T> {
         let etag = response
             .header("etag")
             .map(str::to_owned)
-            .filter(|e| quoted_etag(e).is_ok());
+            .filter(|e| valid_etag(e));
         let data = String::from_utf8(response.body)
             .map_err(|_| Error::InvalidObject(format!("{url} is not valid UTF-8")))?;
         Ok(DavObject {
@@ -162,6 +162,7 @@ impl<T: HttpTransport> DavClient<T> {
     ///
     /// # Errors
     /// [`Error::PreconditionFailed`] on a conflict (HTTP 412),
+    /// [`Error::WeakEtag`] for `Update` with a weak tag (nothing is sent),
     /// [`Error::InvalidObject`] if `data` exceeds the size limit, HTTP and
     /// transport errors.
     pub async fn put_object(
@@ -200,7 +201,7 @@ impl<T: HttpTransport> DavClient<T> {
             200 | 201 | 204 => Ok(response
                 .header("etag")
                 .map(str::to_owned)
-                .filter(|e| quoted_etag(e).is_ok())),
+                .filter(|e| valid_etag(e))),
             _ => Err(status_error(&response, &url)),
         }
     }
@@ -208,7 +209,8 @@ impl<T: HttpTransport> DavClient<T> {
     /// Deletes an object only if it is unchanged (`If-Match`).
     ///
     /// # Errors
-    /// [`Error::PreconditionFailed`] if it was changed, [`Error::NotFound`],
+    /// [`Error::PreconditionFailed`] if it was changed, [`Error::WeakEtag`]
+    /// for a weak tag (nothing is sent), [`Error::NotFound`],
     /// HTTP and transport errors.
     pub async fn delete_object(&self, href: &Href, etag: &str) -> Result<(), Error> {
         if href.is_collection() {

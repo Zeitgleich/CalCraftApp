@@ -301,3 +301,24 @@ fn https_is_required_except_for_loopback() {
         Err(Error::InvalidUrl(_))
     ));
 }
+
+#[test]
+fn foreign_and_malformed_home_hrefs_are_dropped() {
+    let homes = r#"<d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav" xmlns:card="urn:ietf:params:xml:ns:carddav"><d:response><d:href>/dav/principals/alice/</d:href><d:propstat><d:prop>
+        <c:calendar-home-set><d:href>https://evil.example.org/cal/</d:href><d:href>bad%zz</d:href><d:href>/dav/calendars/alice/</d:href></c:calendar-home-set>
+        <card:addressbook-home-set><d:href>/dav/addressbooks/alice/</d:href><d:href>mailto:x@y</d:href></card:addressbook-home-set>
+    </d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response></d:multistatus>"#;
+    let principal = r#"<d:multistatus xmlns:d="DAV:"><d:response><d:href>/dav/</d:href><d:propstat><d:prop><d:current-user-principal><d:href>https://evil.example.org/p/</d:href><d:href>/dav/principals/alice/</d:href></d:current-user-principal></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response></d:multistatus>"#;
+    let mock = MockTransport::new()
+        .reply(Method::Propfind, "/.well-known/caldav", 207, principal)
+        .reply(Method::Propfind, "/dav/principals/alice/", 207, homes);
+    let client = client(BASE, mock);
+    let discovery = block_on(client.discover()).unwrap();
+    assert_eq!(discovery.principal, href("/dav/principals/alice/"));
+    assert_eq!(discovery.calendar_homes, [href("/dav/calendars/alice/")]);
+    assert_eq!(
+        discovery.addressbook_homes,
+        [href("/dav/addressbooks/alice/")]
+    );
+    assert_same_origin(client.transport(), "https://cal.example.com/");
+}

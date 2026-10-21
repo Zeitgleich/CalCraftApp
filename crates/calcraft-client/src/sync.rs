@@ -108,6 +108,11 @@ impl<T: HttpTransport> DavClient<T> {
                     }
                     _ => {}
                 }
+                if changes.len() > self.options().max_sync_entries {
+                    return Err(Error::InvalidResponse(
+                        "sync-collection result exceeds max_sync_entries".into(),
+                    ));
+                }
             }
             let new_token = multistatus.sync_token.ok_or_else(|| {
                 Error::InvalidResponse("sync-collection response without sync-token".into())
@@ -190,11 +195,15 @@ impl<T: HttpTransport> DavClient<T> {
                         method: SyncMethod::SyncCollection,
                     });
                 }
-                Err(error) if sync_unsupported(&error) => {}
-                Err(error) => return Err(error),
+                Err(error) => match fallback(&error) {
+                    Some(permanent) => {
+                        return self.sync_by_ctag(collection, state, known, permanent).await;
+                    }
+                    None => return Err(error),
+                },
             }
         }
-        self.sync_by_ctag(collection, state, known).await
+        self.sync_by_ctag(collection, state, known, true).await
     }
 
     async fn sync_by_ctag(
@@ -202,6 +211,7 @@ impl<T: HttpTransport> DavClient<T> {
         collection: &Href,
         state: &SyncState,
         known: &BTreeMap<Href, String>,
+        permanent: bool,
     ) -> Result<SyncDelta, Error> {
         let url = self.url_for(collection);
         let ctag_query = format!(
@@ -215,10 +225,17 @@ impl<T: HttpTransport> DavClient<T> {
             .iter()
             .find(|r| &r.href == collection)
             .and_then(|r| r.prop_text(NS_CALSERVER, "getctag"));
+        // A temporary fallback keeps the old token so the next run can try
+        // sync-collection again (already applied changes are filtered by
+        // etag).
         let new_state = SyncState {
-            sync_token: None,
+            sync_token: if permanent {
+                None
+            } else {
+                state.sync_token.clone()
+            },
             ctag: ctag.clone(),
-            use_ctag: true,
+            use_ctag: permanent,
         };
         if ctag.is_some() && ctag == state.ctag {
             return Ok(SyncDelta {
@@ -275,13 +292,22 @@ fn drop_unchanged(
         .collect()
 }
 
-/// Errors that mean "this server does not do sync-collection here".
-fn sync_unsupported(error: &Error) -> bool {
-    matches!(
-        error,
+/// Whether an error from `sync-collection` should trigger the ctag
+/// fallback: `Some(true)` for clear "not supported" signals (HTTP 501 or a
+/// `DAV:supported-report` precondition), which make the fallback permanent;
+/// `Some(false)` for other client errors, falling back for this run only;
+/// `None` for errors that must be reported.
+fn fallback(error: &Error) -> Option<bool> {
+    match error {
+        Error::Status { status: 501, .. } => Some(true),
         Error::Status {
-            status: 400 | 403 | 405 | 409 | 415 | 422 | 501,
+            condition: Some(condition),
             ..
-        }
-    )
+        } if condition == "supported-report" => Some(true),
+        Error::Status {
+            status: 400 | 403 | 405 | 409 | 415 | 422,
+            ..
+        } => Some(false),
+        _ => None,
+    }
 }

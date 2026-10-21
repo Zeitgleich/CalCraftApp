@@ -90,64 +90,68 @@ pub(crate) fn parse_multistatus(
             "expected a DAV:multistatus document".into(),
         ));
     }
+    let sync_token = root
+        .child(NS_DAV, "sync-token")
+        .and_then(Element::text_value);
     let mut responses = Vec::new();
     let mut rejected_hrefs = 0;
-    for response in root.children_named(NS_DAV, "response") {
-        let status = match response.child(NS_DAV, "status") {
-            Some(status) => Some(parse_status(&status.text).ok_or_else(|| {
-                Error::InvalidResponse("malformed status line in multistatus".into())
-            })?),
-            None => None,
-        };
-        let mut propstats = Vec::new();
-        for propstat in response.children_named(NS_DAV, "propstat") {
-            // A propstat without a parsable status is treated as failed.
-            let status = propstat
-                .child(NS_DAV, "status")
-                .and_then(|s| parse_status(&s.text))
-                .unwrap_or(500);
-            let props = propstat
-                .child(NS_DAV, "prop")
-                .map(|p| p.children.clone())
-                .unwrap_or_default();
-            propstats.push(PropStat { status, props });
+    // Consume the tree: property subtrees are moved, never copied.
+    for response in root.children {
+        if !response.is(NS_DAV, "response") {
+            continue;
         }
-        // RFC 4918 allows several hrefs only in the `href*, status` form.
-        let hrefs: Vec<&Element> = response.children_named(NS_DAV, "href").collect();
-        if hrefs.is_empty() || (hrefs.len() > 1 && status.is_none()) {
+        let mut status = None;
+        let mut hrefs = Vec::new();
+        let mut propstats = Vec::new();
+        for child in response.children {
+            if child.is(NS_DAV, "href") {
+                hrefs.push(child.text);
+            } else if child.is(NS_DAV, "status") {
+                status = Some(parse_status(&child.text).ok_or_else(|| {
+                    Error::InvalidResponse("malformed status line in multistatus".into())
+                })?);
+            } else if child.is(NS_DAV, "propstat") {
+                // A propstat without a parsable status is treated as failed.
+                let mut propstat_status = 500;
+                let mut props = Vec::new();
+                for part in child.children {
+                    if part.is(NS_DAV, "status") {
+                        propstat_status = parse_status(&part.text).unwrap_or(500);
+                    } else if part.is(NS_DAV, "prop") {
+                        props = part.children;
+                    }
+                }
+                propstats.push(PropStat {
+                    status: propstat_status,
+                    props,
+                });
+            }
+        }
+        // RFC 4918 section 14.24: either `href, (propstat+ | status)` or
+        // `href+, status` without propstat.
+        if hrefs.is_empty() || (hrefs.len() > 1 && (status.is_none() || !propstats.is_empty())) {
             return Err(Error::InvalidResponse(
-                "multistatus response without a valid href".into(),
+                "multistatus response with invalid href/propstat combination".into(),
             ));
         }
+        let mut propstats = Some(propstats);
         for href in hrefs {
-            match request_url.join(&href.text) {
+            match request_url.join(&href) {
                 Ok(url) if url.same_origin(request_url) => responses.push(ResponseItem {
                     href: url.href(),
                     status,
-                    propstats: clone_propstats(&propstats),
+                    // At most one href carries propstats (checked above).
+                    propstats: propstats.take().unwrap_or_default(),
                 }),
                 _ => rejected_hrefs += 1,
             }
         }
     }
-    let sync_token = root
-        .child(NS_DAV, "sync-token")
-        .and_then(Element::text_value);
     Ok(Multistatus {
         responses,
         sync_token,
         rejected_hrefs,
     })
-}
-
-fn clone_propstats(propstats: &[PropStat]) -> Vec<PropStat> {
-    propstats
-        .iter()
-        .map(|p| PropStat {
-            status: p.status,
-            props: p.props.clone(),
-        })
-        .collect()
 }
 
 /// The local name of the first precondition in a `DAV:error` body.
@@ -200,6 +204,24 @@ mod tests {
         assert_eq!(hrefs, ["/dav/cal/b.ics", "/dav/cal/c.ics"]);
         assert_eq!(ms.rejected_hrefs, 4);
         assert_eq!(ms.responses[1].effective_status(), 404);
+    }
+
+    #[test]
+    fn multiple_hrefs_only_with_status() {
+        let url = Url::parse("https://cal.example.com/dav/cal/").unwrap();
+        let ok = r#"<d:multistatus xmlns:d="DAV:"><d:response><d:href>a.ics</d:href><d:href>b.ics</d:href><d:status>HTTP/1.1 404 Not Found</d:status></d:response></d:multistatus>"#;
+        let ms = parse_multistatus(ok, &url, &XmlLimits::default()).unwrap();
+        assert_eq!(ms.responses.len(), 2);
+        assert!(ms.responses.iter().all(|r| r.effective_status() == 404));
+        for bad in [
+            r#"<d:multistatus xmlns:d="DAV:"><d:response><d:href>a.ics</d:href><d:href>b.ics</d:href><d:propstat><d:prop><d:getetag/></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response></d:multistatus>"#,
+            r#"<d:multistatus xmlns:d="DAV:"><d:response><d:href>a.ics</d:href><d:href>b.ics</d:href><d:status>HTTP/1.1 200 OK</d:status><d:propstat><d:prop/><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response></d:multistatus>"#,
+        ] {
+            assert!(matches!(
+                parse_multistatus(bad, &url, &XmlLimits::default()),
+                Err(Error::InvalidResponse(_))
+            ));
+        }
     }
 
     #[test]

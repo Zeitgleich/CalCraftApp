@@ -33,6 +33,11 @@ pub enum Error {
     /// `If-Match` / `If-None-Match` failed (HTTP 412): the resource was
     /// changed or created concurrently. Fetch it again and merge.
     PreconditionFailed(String),
+    /// The entity tag is weak (`W/"..."`). `If-Match` uses strong comparison
+    /// (RFC 9110 section 13.1.1), so a conditional write with it would always
+    /// fail with 412; the request was not sent. Refetch the object; if the
+    /// server only ever returns weak tags it cannot be updated safely.
+    WeakEtag(String),
     /// The server rejected the sync token (`DAV:valid-sync-token`); a full
     /// resynchronisation is required.
     InvalidSyncToken(String),
@@ -78,6 +83,7 @@ impl fmt::Display for Error {
             Self::Unauthorized(url) => write!(f, "authentication failed for {url}"),
             Self::NotFound(url) => write!(f, "not found: {url}"),
             Self::PreconditionFailed(url) => write!(f, "resource was modified concurrently: {url}"),
+            Self::WeakEtag(etag) => write!(f, "weak entity tag cannot be used in If-Match: {etag}"),
             Self::InvalidSyncToken(url) => {
                 write!(f, "sync token rejected, full resync needed: {url}")
             }

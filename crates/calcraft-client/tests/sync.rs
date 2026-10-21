@@ -277,14 +277,26 @@ const ETAGS: &str = r#"<D:multistatus xmlns:D="DAV:"><D:response><D:href>/dav/ca
 
 #[test]
 fn fallback_to_ctag_and_etags() {
-    for (status, body) in [
+    // (status, body, permanent fallback)
+    for (status, body, permanent) in [
         (
             403,
             r#"<d:error xmlns:d="DAV:"><d:supported-report/></d:error>"#,
+            true,
         ),
-        (415, include_str!("fixtures/sabre/report_not_supported.xml")),
-        (501, ""),
-        (400, ""),
+        (
+            415,
+            include_str!("fixtures/sabre/report_not_supported.xml"),
+            true,
+        ),
+        (501, "", true),
+        (400, "", false),
+        (
+            403,
+            r#"<d:error xmlns:d="DAV:"><d:need-privileges/></d:error>"#,
+            false,
+        ),
+        (409, "", false),
     ] {
         let mock = MockTransport::new()
             .reply(Method::Report, CAL, status, body)
@@ -293,6 +305,7 @@ fn fallback_to_ctag_and_etags() {
         let client = client(BASE, mock);
         let state = SyncState {
             ctag: Some("ctag-1".into()),
+            sync_token: Some("old-token".into()),
             ..SyncState::default()
         };
         let local = known(&[
@@ -311,7 +324,10 @@ fn fallback_to_ctag_and_etags() {
         );
         assert_eq!(delta.deleted, [href("/dav/calendars/alice/default/c.ics")]);
         assert!(delta.full_resync);
-        assert!(delta.state.use_ctag);
+        assert_eq!(delta.state.use_ctag, permanent, "{status} {body}");
+        // A temporary fallback keeps the token to retry sync-collection.
+        let token = (!permanent).then_some("old-token");
+        assert_eq!(delta.state.sync_token.as_deref(), token);
         assert_eq!(delta.state.ctag.as_deref(), Some("ctag-2"));
         let requests = client.transport().requests();
         assert_eq!(requests[1].header("depth"), Some("0"));
@@ -353,4 +369,28 @@ fn other_errors_are_not_masked() {
         block_on(client.sync(&href(CAL), &SyncState::default(), &BTreeMap::new())),
         Err(Error::Unauthorized(_))
     ));
+}
+
+#[test]
+fn accumulated_entries_are_capped() {
+    let page = |n: usize| {
+        let items: String = (0..10)
+            .map(|i| format!(r#"<d:response><d:href>{CAL}p{n}-{i}.ics</d:href><d:propstat><d:prop><d:getetag>"1"</d:getetag></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>"#))
+            .collect();
+        format!(
+            r#"<d:multistatus xmlns:d="DAV:">{items}<d:response><d:href>{CAL}</d:href><d:status>HTTP/1.1 507 Insufficient Storage</d:status></d:response><d:sync-token>t{n}</d:sync-token></d:multistatus>"#
+        )
+    };
+    let mut mock = MockTransport::new();
+    for n in 0..3 {
+        mock = mock.reply(Method::Report, CAL, 207, page(n));
+    }
+    let mut options = ClientOptions::default();
+    options.max_sync_entries = 25;
+    let client = client_with(BASE, mock, options);
+    match block_on(client.sync_collection(&href(CAL), None)) {
+        Err(Error::InvalidResponse(message)) => assert!(message.contains("max_sync_entries")),
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(client.transport().requests().len(), 3);
 }
